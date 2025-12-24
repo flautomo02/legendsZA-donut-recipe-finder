@@ -3,12 +3,11 @@ import sqlite3
 import pandas as pd
 import os
 import csv
+import zipfile
 
 # --- CONFIGURATION ---
 DB_NAME = 'legends_za_donuts.db'
 CSV_FILE = 'my_berries.csv'
-
-import zipfile
 
 # Auto-Unzip Logic
 if not os.path.exists(DB_NAME):
@@ -103,11 +102,61 @@ def cook_recipe(recipe_id):
 # --- INITIALIZATION ---
 init_db()
 
-# --- SIDEBAR: GLOBAL SETTINGS ---
+# --- SIDEBAR: GLOBAL SETTINGS & IMPORT/EXPORT ---
 with st.sidebar:
     st.title("🍩 Donut Manager")
     st.caption("Web Version")
-    if st.button("Reload from CSV"):
+
+    # Ensure we have data loaded for the export button
+    if 'inventory_df' not in st.session_state:
+        st.session_state.inventory_df = load_inventory()
+
+    st.subheader("Data Management")
+
+    # 1. EXPORT BUTTON
+    # Converts current dataframe to CSV for download
+    csv_data = st.session_state.inventory_df.to_csv(index=False).encode('utf-8')
+    st.download_button(
+        label="⬇️ Export Inventory to CSV",
+        data=csv_data,
+        file_name="my_berries.csv",
+        mime="text/csv",
+        use_container_width=True
+    )
+
+    st.write("---")
+
+    # 2. IMPORT UPLOADER
+    uploaded_file = st.file_uploader("⬆️ Import Inventory CSV", type=['csv'])
+    
+    if uploaded_file is not None:
+        if st.button("Confirm Import", type="primary", use_container_width=True):
+            try:
+                # Read CSV
+                imported_df = pd.read_csv(uploaded_file)
+                
+                # normalize columns if user manually edited headers
+                imported_df.columns = [c.lower().replace(" ", "_") for c in imported_df.columns]
+
+                # Validate Columns
+                if 'berry_name' in imported_df.columns and 'quantity' in imported_df.columns:
+                    # Save to DB and Server CSV
+                    save_inventory(imported_df)
+                    
+                    # Update Session State
+                    st.session_state.inventory_df = load_inventory()
+                    
+                    st.success("Inventory imported successfully!")
+                    st.rerun()
+                else:
+                    st.error("Invalid CSV format. Columns must be 'berry_name' and 'quantity'.")
+            except Exception as e:
+                st.error(f"Error processing file: {e}")
+
+    st.write("---")
+    
+    # Original Reset/Reload
+    if st.button("Reload from Server CSV"):
         if 'inventory_df' in st.session_state:
             del st.session_state.inventory_df
         st.rerun()
